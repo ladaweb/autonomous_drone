@@ -7,7 +7,6 @@ This file demonstrates how to add a drone using Sphinx and run a simulated envir
 - **Sphinx**: Ensure Sphinx is installed and configured.
 - **Drone Firmware**: Accessible via the provided URL.
 - **Parrot-UE4**: Installed and available in your system’s PATH.
-- **Configuration File**: Verify that the file `/home/aims-lab/code/parrot-olympe/research/drone/src/resources/config.yaml` exists and is correctly configured.
 
 ## How to Run
 
