@@ -12,7 +12,7 @@ DRONE_IP = os.environ.get("DRONE_IP", "10.202.0.1")
 class RedObjectDetector:
     def __init__(self):
         self.drone = olympe.Drone(DRONE_IP)
-        self.frame_queue = queue.Queue(maxsize=10)  # Limit queue size
+        self.frame_queue = queue.Queue(maxsize=10)
         self.running = True
 
     def start(self):
