@@ -1,0 +1,7 @@
+Meshes:
+  - Name: 'RedBall'
+    FbxPath: "/home/aims-lab/code/parrot-olympe/research/PokemonGoBall.FBX"
+    Location: "-3264 -909 81"
+    Rotation: "0 0 45"
+    Scale: "0.3 0.3 0.3"
+    SnapToGround: false 
