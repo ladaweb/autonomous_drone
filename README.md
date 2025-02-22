@@ -1,6 +1,6 @@
 # Drone Simulation Environment
 
-This project demonstrates how to add a drone using Sphinx and run a simulated environment with Parrot-UE4.
+This file demonstrates how to add a drone using Sphinx and run a simulated environment with Parrot-UE4.
 
 ## Prerequisites
 
