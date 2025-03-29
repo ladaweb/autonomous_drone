@@ -1,34 +1,27 @@
 Meshes:
   - Name: 'RedBall'
-    FbxPath: "/home/aims-lab/code/parrot-olympe/research/PokemonGoBall.FBX"
+    FbxPath: "/home/lprotche/Documents/research/autonomous_drone/drone/src/resources/images/PokemonGoBall.FBX"
     Location: "230 10 23"
     Rotation: "0 0 45"
     Scale: "0.3 0.3 0.3"
     SnapToGround: false
 
   - Name: 'Sofa'
-    FbxPath: "/home/aims-lab/code/parrot-olympe/research/Sofa.fbx"
+    FbxPath: "/home/lprotche/Documents/research/autonomous_drone/drone/src/resources/images/Sofa.fbx"
     Location: "-100 -250 23"
     Rotation: "270 0 -20"
     Scale: "1 1 1"
     SnapToGround: true
 
-  - Name: 'Chair'
-    FbxPath: "/home/aims-lab/code/parrot-olympe/research/old_wooden_chair.fbx"
-    Location: "100 400 20"
-    Rotation: "180 0 90"
-    Scale: "0.7 0.7 0.7"
-    SnapToGround: true
-
   - Name: 'Box'
-    FbxPath: "/home/aims-lab/code/parrot-olympe/research/WoodenBox.fbx"
+    FbxPath: "/home/lprotche/Documents/research/autonomous_drone/drone/src/resources/images/WoodenBox.fbx"
     Location: "50 -100 20"
     Rotation: "0 0 0"
     Scale: "1 1 1"
     SnapToGround: false
 
   - Name: 'Table'
-    FbxPath: "/home/aims-lab/code/parrot-olympe/research/WoodenTable.fbx"
+    FbxPath: "/home/lprotche/Documents/research/autonomous_drone/drone/src/resources/images/WoodenTable.fbx"
     Location: "-100 10 23"
     Rotation: "-90 0 0"
     Scale: "0.8 0.8 0.8"
