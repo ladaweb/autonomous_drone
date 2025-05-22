@@ -78,7 +78,6 @@ def main(argv):
                 if data:
                     print(f"QR Code detected: {data}")
                     webbrowser.open(data)
-                    break
             except Exception as e:
                 print(f"Error during QR code detection: {e}")
                 continue
