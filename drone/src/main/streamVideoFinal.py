@@ -24,7 +24,6 @@ olympe.log.update_config({"loggers": {"olympe": {"level": "INFO"}}})
 DRONE_IP = os.environ.get("DRONE_IP", "10.202.0.1")
 DRONE_RTSP_PORT = os.environ.get("DRONE_RTSP_PORT")
 
-
 class StreamingExample:
     def __init__(self):
         self.drone = olympe.Drone(DRONE_IP)
@@ -36,22 +35,25 @@ class StreamingExample:
         self.renderer = None
 
     def start(self):
-        assert self.drone.connect(retry=3)
+        # Connect to the drone
+        assert self.drone.connect(retry=3), "Failed to connect to the drone"
 
-        # **Enable Front Camera for Video Recording**
-        self.drone(set_camera_mode(cam_id=0, value="recording")).wait()
+        # Removed set_camera_mode to test if it's causing the issue
+        # print("Setting camera mode to recording...")
+        # self.drone(set_camera_mode(cam_id=0, value="recording")).wait()
 
-        # **Ensure RTSP Stream Works**
+        # Ensure RTSP Stream Works
         if DRONE_RTSP_PORT:
             self.drone.streaming.server_addr = f"{DRONE_IP}:{DRONE_RTSP_PORT}"
+            print(f"Using RTSP port: {DRONE_RTSP_PORT}")
 
-        # **Save Streaming Video**
+        # Save Streaming Video
         self.drone.streaming.set_output_files(
             video=os.path.join(self.tempd, "streaming.mp4"),
             metadata=os.path.join(self.tempd, "streaming_metadata.json"),
         )
 
-        # **Set Callbacks**
+        # Set Callbacks
         self.drone.streaming.set_callbacks(
             raw_cb=self.yuv_frame_cb,
             start_cb=self.start_cb,
@@ -60,9 +62,16 @@ class StreamingExample:
         )
 
         print("Starting streaming...")
-        self.drone.streaming.start()
+        assert self.drone.streaming.start(), "Failed to start streaming"
 
-        self.renderer = PdrawRenderer(pdraw=self.drone.streaming)
+        # Initialize the renderer with error handling
+        try:
+            self.renderer = PdrawRenderer(pdraw=self.drone.streaming)
+            print("PdrawRenderer initialized successfully!")
+        except Exception as e:
+            print(f"Failed to initialize PdrawRenderer: {e}")
+            self.renderer = None
+
         self.running = True
         self.processing_thread = threading.Thread(target=self.yuv_frame_processing)
         self.processing_thread.start()
@@ -70,28 +79,44 @@ class StreamingExample:
     def stop(self):
         print("Stopping streaming...")
 
-        # **Ensure the video stream is properly flushed**
-        self.drone.streaming.flush()
-        
+        # Stop the frame processing thread
         self.running = False
         self.processing_thread.join()
 
+        # Stop the renderer if it exists
         if self.renderer is not None:
             print("Stopping renderer...")
             self.renderer.stop()
             self.renderer = None  # Ensure it's properly cleared
 
-        # **Wait for the drone to finalize the video file**
-        print("Waiting for video file to finalize...")
-        time.sleep(2)  # Give it time to finalize before stopping streaming
-        self.drone.streaming.stop()
-        print("Video finalized.")
+        # Clear the frame queue
+        while not self.frame_queue.empty():
+            try:
+                frame = self.frame_queue.get_nowait()
+                frame.unref()
+            except queue.Empty:
+                break
 
+        # Stop the video stream
+        print("Stopping video stream...")
+        self.drone.streaming.stop()
+
+        # Wait for the drone to finalize the video file
+        print("Waiting for video file to finalize...")
+        time.sleep(5)  # Increased delay to ensure video file is finalized
+
+        # Land the drone
+        print("Landing drone...")
+        self.drone(Landing() >> FlyingStateChanged(state="landed", _timeout=5)).wait()
+        print("Drone landed successfully.")
+
+        # Disconnect from the drone
         print("Disconnecting drone...")
         self.drone.disconnect()
         print("Drone disconnected.")
 
     def yuv_frame_cb(self, yuv_frame):
+        print("Received a YUV frame!")  # Debug to confirm frames are being received
         yuv_frame.ref()
         self.frame_queue.put_nowait(yuv_frame)
 
@@ -159,19 +184,24 @@ class StreamingExample:
     def replay_video(self):
         mp4_filepath = os.path.join(self.tempd, "streaming.mp4")
 
-        # **Check if video file is valid**
-        if not os.path.exists(mp4_filepath) or os.path.getsize(mp4_filepath) == 0:
-            print("No valid recorded video found! The file is empty or corrupted.")
+        # Check if video file is valid
+        if not os.path.exists(mp4_filepath):
+            print(f"Video file not found at {mp4_filepath}!")
+            return
+        if os.path.getsize(mp4_filepath) == 0:
+            print("Video file is empty! The recording may have failed.")
             return
 
-        # **Check if VLC is installed**
+        # Check if VLC is installed
         if shutil.which("vlc") is None:
             print("VLC is not installed. Please install VLC or use another player.")
             return
 
         print("Playing recorded video...")
-        subprocess.run(shlex.split(f"vlc --play-and-exit {mp4_filepath}"), check=True)
-
+        try:
+            subprocess.run(shlex.split(f"vlc --play-and-exit {mp4_filepath}"), check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to play video: {e}")
 
 def test_streaming():
     streaming_example = StreamingExample()
@@ -181,7 +211,6 @@ def test_streaming():
 
     print("Checking recorded video...")
     streaming_example.replay_video()
-
 
 if __name__ == "__main__":
     test_streaming()
