@@ -1,3 +1,5 @@
+# drone_qr_scan_sequence.py
+
 import olympe
 from olympe.messages.ardrone3.Piloting import TakeOff, Landing, moveBy
 from olympe.messages.ardrone3.PilotingState import FlyingStateChanged
@@ -7,8 +9,13 @@ import time
 import threading
 import cv2
 import keyboard
+import re
+import os
+import numpy as np
 
-DRONE_IP = "192.168.42.1"
+DRONE_IP = os.environ.get("DRONE_IP", "192.168.42.1")
+DRONE_RTSP_PORT = os.environ.get("DRONE_RTSP_PORT", "554")
+RTSP_URL = f"rtsp://{DRONE_IP}:{DRONE_RTSP_PORT}/live"
 
 drone_should_land = False
 drone_should_hover = False
@@ -47,30 +54,53 @@ def safe_move(drone, dx, dy, dz, dpsi):
         print("[MOVE] Movement failed!")
 
 
-def scan_qr_for_15_seconds():
-    print("[QR] Starting QR scan for 15 seconds...")
-    cap = cv2.VideoCapture(0)
+def scan_qr_for_20_seconds(drone):
+    print("[QR] Connecting to drone video stream...")
+    cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
+
+    if not cap.isOpened():
+        print("[QR] Failed to open video stream")
+        return []
+
     detector = cv2.QRCodeDetector()
+    qr_found = []
     start_time = time.time()
-    while time.time() - start_time < 15:
+
+    while time.time() - start_time < 20:
         ret, frame = cap.read()
         if not ret:
-            print("[QR] Frame not read correctly.")
             continue
+
         data, bbox, _ = detector.detectAndDecode(frame)
-        if data:
+
+        if bbox is not None and len(bbox) > 0:
+            bbox = np.int32(bbox)
+            for i in range(len(bbox[0])):
+                pt1 = tuple(bbox[0][i])
+                pt2 = tuple(bbox[0][(i + 1) % len(bbox[0])])
+                cv2.line(frame, pt1, pt2, (0, 255, 0), 2)
+            if data:
+                cv2.putText(frame, data, (int(bbox[0][0][0]), int(bbox[0][0][1]) - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+        if data and data not in [q[0] for q in qr_found]:
             print(f"[QR] QR Code detected: {data}")
+            qr_found.append((data, time.time() - start_time))
             break
-        if drone_should_land:
-            print("[QR] Land requested. Aborting QR scan.")
+
+        cv2.imshow("Drone QR Debug View", frame)
+        if cv2.waitKey(1) & 0xFF == ord("q") or drone_should_land:
             break
+
     cap.release()
     cv2.destroyAllWindows()
-    print("[QR] QR scan complete.")
+    return qr_found
 
 
 def main():
     global drone_should_land, drone_should_hover
+
     print("[MAIN] Connecting to drone...")
     drone = olympe.Drone(DRONE_IP)
     drone.connect()
@@ -86,27 +116,36 @@ def main():
     print("[MAIN] Setting max tilt to 5 (slower speed)...")
     drone(MaxTilt(5)).wait().success()
 
-    # Step 1 - Move forward 1.4478 m (144.78 cm)
+    # Step 1: Move up 1.5 m (in 3 steps)
+    for _ in range(3):
+        safe_move(drone, 0, 0, -0.5, 0)
+        time.sleep(0.5)
 
-    #up 0.5m
-    safe_move(drone, 0, 0, -0.5, 0)
-    time.sleep(0.5)
-    safe_move(drone, 0, 0, -0.5, 0)
-    time.sleep(0.5)
-    safe_move(drone, 0, 0, -0.5, 0)
+    # Step 2: Move forward 1.12 m
+    print("[MAIN] Moving forward 1.12 m")
+    safe_move(drone, 1.12, 0, 0, 0)
     time.sleep(0.5)
 
-    print("[MAIN] Moving forward 144.78 cm")
-    safe_move(drone, 1.1, 0, 0, 0)
-    time.sleep(0.5)
-    time.sleep(0.5)
+    # Step 3: Rotate 90° left (counter-clockwise)
     safe_move(drone, 0, 0, 0, -1.5708)
     time.sleep(0.5)
 
+    # Step 4: Scan for QR
+    print("[MAIN] Scanning for QR code...")
+    qr_found = scan_qr_for_20_seconds(drone)
 
-    print("[MAIN] Landing now after 10 second hover.")
+    if qr_found:
+        print(f"[MAIN] QR code(s) detected: {qr_found}")
+    else:
+        print("[MAIN] No QR code found within time limit.")
+
+    # Step 5: Land
+    print("[MAIN] Landing...")
     drone(Landing()).wait()
-    print("[MAIN] Landed successfully.")
+    print("[MAIN] Drone landed.")
+
+    drone.disconnect()
+
 
 if __name__ == "__main__":
     main()
