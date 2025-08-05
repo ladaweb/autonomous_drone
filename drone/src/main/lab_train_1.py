@@ -1,5 +1,3 @@
-# drone_qr_scan_sequence.py
-
 import olympe
 from olympe.messages.ardrone3.Piloting import TakeOff, Landing, moveBy
 from olympe.messages.ardrone3.PilotingState import FlyingStateChanged
@@ -9,7 +7,6 @@ import time
 import threading
 import cv2
 import keyboard
-import re
 import os
 import numpy as np
 
@@ -89,6 +86,7 @@ def scan_qr_for_20_seconds(drone):
             qr_found.append((data, time.time() - start_time))
             break
 
+        # ✅ Show live drone video feed with QR overlay
         cv2.imshow("Drone QR Debug View", frame)
         if cv2.waitKey(1) & 0xFF == ord("q") or drone_should_land:
             break
@@ -130,7 +128,11 @@ def main():
     safe_move(drone, 0, 0, 0, -1.5708)
     time.sleep(0.5)
 
-    # Step 4: Scan for QR
+    # Step 4: Approach QR area
+    safe_move(drone, 1.4, 0, 0, 0)
+    time.sleep(0.5)
+
+    # Step 5: Scan for QR
     print("[MAIN] Scanning for QR code...")
     qr_found = scan_qr_for_20_seconds(drone)
 
@@ -139,13 +141,95 @@ def main():
     else:
         print("[MAIN] No QR code found within time limit.")
 
-    # Step 5: Land
+    # Step 6: Go back (rotate back and return)
+    safe_move(drone, 0, 0, 0, -1.5708)
+    time.sleep(0.5)
+    safe_move(drone, 0, 0, 0, -1.5708)
+    time.sleep(0.5)
+    safe_move(drone, 1, 0, 0, 0)
+    time.sleep(0.5)
+
+    #Step 7: turn left
+    safe_move(drone, 0, 0, 0, -1.5708)
+    time.sleep(0.5)
+
+
+    #Step 8: (not safe) go 2 m
+    safe_move(drone, 1, 0, 0, 0)
+    time.sleep(0.5)
+
+    safe_move(drone, 1.2, 0, 0, 0)
+    time.sleep(0.5)
+
+    #Step 9: turn right -> approach 2nd qr
+    safe_move(drone, 0, 0, 0, 1.5708)
+    time.sleep(0.5)
+
+
+    # Step 10: Scan for 2nd QR
+    print("[MAIN] Scanning for QR code...")
+    qr_found = scan_qr_for_20_seconds(drone)
+
+    if qr_found:
+        print(f"[MAIN] QR code(s) detected: {qr_found}")
+    else:
+        print("[MAIN] No QR code found within time limit.")
+
+
+    #Step 11 turn left (not safeeeee!) 3 m forward -> approach 3rd qr
+    safe_move(drone, 0, 0, 0, -1.5708)
+    time.sleep(0.5)
+
+    safe_move(drone, 1.5, 0, 0, 0)
+    time.sleep(0.5)
+    safe_move(drone, 1.5, 0, 0, 0)
+    time.sleep(0.5)
+    safe_move(drone, 1, 0, 0, 0)
+    time.sleep(0.5)
+    safe_move(drone, 1, 0, 0, 0)
+    time.sleep(0.5)
+    time.sleep(0.5)
+
+    safe_move(drone, 0, 0, 0, -1.5708)
+    time.sleep(0.5)
+
+    #Step 12: approach 3rd qr  
+    safe_move(drone, 1.5, 0, 0, 0)
+    time.sleep(0.5)
+
+    #Step 13: Scan for 3rd QR
+    print("[MAIN] Scanning for QR code...")
+    qr_found = scan_qr_for_20_seconds(drone)
+
+    if qr_found:
+        print(f"[MAIN] QR code(s) detected: {qr_found}")
+    else:
+        print("[MAIN] No QR code found within time limit.")
+
+    #Step 14 go back
+
+    safe_move(drone, 0, 0, 0, -1.5708)
+    time.sleep(0.5)
+    safe_move(drone, 0, 0, 0, -1.5708)
+    time.sleep(0.5)
+
+    safe_move(drone, 1.1, 0, 0, 0)
+    time.sleep(0.5)
+
+
+    safe_move(drone, 0, 0, 0, -1.5708)
+    time.sleep(0.5)
+    time.sleep(0.5)
+
+
+
+    # Step 15: Land
     print("[MAIN] Landing...")
     drone(Landing()).wait()
     print("[MAIN] Drone landed.")
 
     drone.disconnect()
-
+ 
 
 if __name__ == "__main__":
     main()
