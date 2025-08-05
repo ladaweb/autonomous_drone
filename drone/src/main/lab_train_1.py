@@ -186,7 +186,7 @@ def main():
     time.sleep(0.5)
     safe_move(drone, 1, 0, 0, 0)
     time.sleep(0.5)
-    safe_move(drone, 1, 0, 0, 0)
+    safe_move(drone, 0.8, 0, 0, 0)
     time.sleep(0.5)
     time.sleep(0.5)
 
@@ -213,7 +213,7 @@ def main():
     safe_move(drone, 0, 0, 0, -1.5708)
     time.sleep(0.5)
 
-    safe_move(drone, 1.1, 0, 0, 0)
+    safe_move(drone, 1, 0, 0, 0)
     time.sleep(0.5)
 
 
