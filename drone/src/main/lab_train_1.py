@@ -103,6 +103,10 @@ def main():
     drone = olympe.Drone(DRONE_IP)
     drone.connect()
 
+    initial_battery = drone.get_battery_capacity().get("remaining")
+    print(f"Initial battery level: {initial_battery} mAh")
+
+
     print("[MAIN] Starting keyboard listener...")
     listener_thread = threading.Thread(target=keyboard_listener, daemon=True)
     listener_thread.start()
@@ -206,27 +210,65 @@ def main():
     else:
         print("[MAIN] No QR code found within time limit.")
 
-    #Step 14 go back
-
+    # Step 14 go back
     safe_move(drone, 0, 0, 0, -1.5708)
     time.sleep(0.5)
     safe_move(drone, 0, 0, 0, -1.5708)
     time.sleep(0.5)
-
-    safe_move(drone, 1, 0, 0, 0)
+    safe_move(drone, 0.9, 0, 0, 0)
     time.sleep(0.5)
-
-
     safe_move(drone, 0, 0, 0, -1.5708)
     time.sleep(0.5)
     time.sleep(0.5)
 
+    # Step 15: Move forward 1.5 m and do 360 scan
+    print("[MAIN] Moving forward 1.5 m for 360 scan...")
+    safe_move(drone, 1.5, 0, 0, 0)
+    time.sleep(1)
 
 
-    # Step 15: Land
+    # Start video recording
+    print("[VIDEO] Setting up 360 scan video recording...")
+    video_filename = "360_scan.mp4"
+    metadata_filename = "360_scan_metadata.json"
+    drone.streaming.set_output_files(video=video_filename, metadata=metadata_filename)
+    if not drone.streaming.start():
+        print("[VIDEO] Failed to start video recording.")
+    else:
+        print(f"[VIDEO] Recording started: {video_filename}")
+
+
+
+    print("[MAIN] Performing 360-degree scan...")
+    for _ in range(4):
+        safe_move(drone, 0, 0, 0, 1.5708)  # 90 degrees
+        time.sleep(2)  # Simulate scan delay
+
+
+    # Stop video recording
+    print("[VIDEO] Stopping 360 scan recording...")
+    drone.streaming.stop()
+    print(f"[VIDEO] Video saved to {video_filename}")
+
+    time.sleep(2)
+    #Step 16: turn right right to go to initial position 
+    safe_move(drone, 0, 0, 0, 1.5708)
+    time.sleep(1)
+    safe_move(drone, 0, 0, 0, 1.5708)
+    time.sleep(1)
+
+    # Step 17: Move back 1.5 m
+    print("[MAIN] Returning back 1.5 m to original position...")
+    safe_move(drone, 1.5, 0, 0, 0)
+    time.sleep(1)
+
+    # Step 18: Land
     print("[MAIN] Landing...")
     drone(Landing()).wait()
     print("[MAIN] Drone landed.")
+
+    final_battery = drone.get_battery_capacity().get("remaining")
+    print(f"Final battery level: {final_battery} mAh")
 
     drone.disconnect()
  
