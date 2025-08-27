@@ -103,20 +103,6 @@ def main():
     drone = olympe.Drone(DRONE_IP)
     drone.connect()
 
-    
-    # Get initial battery level at the start
-    initial_battery = drone.get_battery_capacity().get("remaining")
-    full_charge_capacity = drone.get_battery_capacity().get("full_charge")  # In mAh
-
-    # Ensure full charge capacity and initial battery levels are available
-    if full_charge_capacity is None or initial_battery is None:
-        print("Unable to retrieve battery capacity data.")
-    else:
-        # Calculate the initial battery percentage
-        initial_battery_percentage = (initial_battery / full_charge_capacity) * 100
-        print(f"Initial battery level: {initial_battery_percentage:.2f}% ({initial_battery} mAh)")
-
-
     print("[MAIN] Starting keyboard listener...")
     listener_thread = threading.Thread(target=keyboard_listener, daemon=True)
     listener_thread.start()
@@ -155,9 +141,6 @@ def main():
     else:
         print("[MAIN] No QR code found within time limit.")
 
-    firstQr_battery = drone.get_battery_capacity().get("remaining")
-    print(f"Battery level after first QR: {firstQr_battery} mAh")
-
     # Step 6: Go back (rotate back and return)
     safe_move(drone, 0, 0, 0, -1.5708)
     time.sleep(0.5)
@@ -192,10 +175,6 @@ def main():
     else:
         print("[MAIN] No QR code found within time limit.")
 
-    secondQr_battery = drone.get_battery_capacity().get("remaining")
-    print(f"Battery level after second QR: {secondQr_battery} mAh")
-
-
     #Step 11 turn left (not safeeeee!) 3 m forward -> approach 3rd qr
     safe_move(drone, 0, 0, 0, -1.5708)
     time.sleep(0.5)
@@ -225,10 +204,6 @@ def main():
         print(f"[MAIN] QR code(s) detected: {qr_found}")
     else:
         print("[MAIN] No QR code found within time limit.")
-
-    thirdQr_battery = drone.get_battery_capacity().get("remaining")
-    print(f"Battery level after third QR: {thirdQr_battery} mAh")
-
     # Step 14 go back
     safe_move(drone, 0, 0, 0, -1.5708)
     time.sleep(0.5)
@@ -285,18 +260,6 @@ def main():
     print("[MAIN] Landing...")
     drone(Landing()).wait()
     print("[MAIN] Drone landed.")
-    
-    final_battery = drone.get_battery_capacity().get("remaining")
-
-    # Calculate the final battery percentage
-    final_battery_percentage = (final_battery / full_charge_capacity) * 100
-    print(f"Final battery level: {final_battery_percentage:.2f}% ({final_battery} mAh)")
-
-    # Calculate how much battery was used in percentage and mAh
-    battery_used_percentage = initial_battery_percentage - final_battery_percentage
-    battery_used_mAh = initial_battery - final_battery
-
-    print(f"Battery used during mission: {battery_used_percentage:.2f}% ({battery_used_mAh} mAh)")
 
     drone.disconnect()
  
