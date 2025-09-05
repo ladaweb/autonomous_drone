@@ -11,6 +11,7 @@ import keyboard
 import os
 import numpy as np
 import queue
+import sys  # for immediate exit on emergency land
 
 # --- Config / Globals ---
 DRONE_IP = os.environ.get("DRONE_IP", "192.168.42.1")
@@ -19,7 +20,26 @@ DRONE_RTSP_PORT = os.environ.get("DRONE_RTSP_PORT", "554")  # optional, not used
 drone_should_land = False
 drone_should_hover = False
 
+# QR results log file
+QR_LOG_FILE = "qr_scan_log.txt"
+
 olympe.log.update_config({"loggers": {"olympe": {"level": "WARNING"}}})
+
+
+# ---------- Small helper: append QR scan results to a text file ----------
+def log_qr_result(stage_label: str, found_list):
+    """
+    stage_label: e.g., "Scan 1/3", "Scan 2/3", "Scan 3/3"
+    found_list: list of decoded QR strings (possibly empty)
+    """
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    status = "DETECTED" if found_list else "NOT DETECTED"
+    line = f"[{ts}] {stage_label}: {status}"
+    if found_list:
+        line += f" | codes={'; '.join(found_list)}"
+    with open(QR_LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+    print(f"[LOG] {line}")
 
 
 # ---------- Keyboard handling ----------
@@ -35,19 +55,32 @@ def keyboard_listener():
             drone_should_hover = True
 
 
-# ---------- Movement helper (unchanged) ----------
+# ---------- Movement helper (UPDATED: immediate land / hover-then-land) ----------
 def safe_move(drone, dx, dy, dz, dpsi):
     global drone_should_land, drone_should_hover
+
+    # Immediate emergency land: stop all remaining steps
     if drone_should_land:
-        print("[MOVE] Land requested. Skipping movement.")
-        return
+        print("[MOVE] Emergency land requested! Landing now.")
+        try:
+            drone(Landing()).wait()
+        finally:
+            sys.exit(0)
+
+    # Hover mode: stay put, but allow switching to emergency land (q) at any time
     if drone_should_hover:
         print("[MOVE] Hover requested. Holding position...")
         drone(FlyingStateChanged(state="hovering", _timeout=5)).wait()
-        while not drone_should_land:
-            time.sleep(0.5)
-        return
+        while True:
+            if drone_should_land:
+                print("[MOVE] Emergency land requested during hover! Landing now.")
+                try:
+                    drone(Landing()).wait()
+                finally:
+                    sys.exit(0)
+            time.sleep(0.1)
 
+    # Normal movement
     print(f"[MOVE] Executing moveBy: dx={dx}, dy={dy}, dz={dz}, dpsi={dpsi}")
     move = drone(
         moveBy(dx, dy, dz, dpsi)
@@ -96,14 +129,11 @@ class OlympeQRScanner:
 
     # ---- Olympe callbacks ----
     def _yuv_frame_cb(self, yuv_frame):
-        # Retain until processed
         yuv_frame.ref()
         self.frame_queue.put_nowait(yuv_frame)
-        # Mark that at least one decoded frame arrived
         self.first_frame_evt.set()
 
     def _flush_raw_cb(self, stream):
-        # Release frames on flush to avoid leaks
         if stream.get("vdef_format") != olympe.VDEF_I420:
             return True
         try:
@@ -114,7 +144,6 @@ class OlympeQRScanner:
         return True
 
     def _h264_frame_cb(self, h264_frame):
-        # Optional: could compute bitrate/FPS like in your older script
         pass
 
     # ---- Worker thread: decode and detect ----
@@ -133,7 +162,7 @@ class OlympeQRScanner:
                 yuv_np = yuv_frame.as_ndarray()
                 bgr = cv2.cvtColor(yuv_np, self.cvt_map[fmt])
 
-                # Detect QR (we keep scanning for the full duration)
+                # Detect QR
                 data, bbox, _ = self.qr_detector.detectAndDecode(bgr)
 
                 # Draw overlay
@@ -148,7 +177,7 @@ class OlympeQRScanner:
                         print(f"[QR] Detected: {data}")
                     cv2.putText(bgr, data, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
 
-                # Publish latest frame for main-thread preview
+                # Publish latest frame for preview
                 if show_window:
                     with self.last_lock:
                         self.last_bgr = bgr
@@ -158,8 +187,9 @@ class OlympeQRScanner:
     # ---- Public API ----
     def scan(self, duration_s=20, show_window=True):
         """
-        Start streaming, scan for QR for duration_s seconds, then stop.
+        Start streaming, scan for QR for up to duration_s seconds, then stop.
         Returns list of unique QR strings detected (in arbitrary order).
+        Exits early as soon as a QR code is detected.
         """
         self.detected.clear()
         self.stop_event.clear()
@@ -171,22 +201,25 @@ class OlympeQRScanner:
             h264_cb=self._h264_frame_cb,
             flush_raw_cb=self._flush_raw_cb,
         )
-
-        # If you’ve set a custom RTSP port elsewhere: self.drone.streaming.server_addr = f"{DRONE_IP}:{DRONE_RTSP_PORT}"
         self.drone.streaming.start()
 
         self.running = True
         self.worker = threading.Thread(target=self._worker_loop, args=(show_window,), daemon=True)
         self.worker.start()
 
-        # Wait briefly for first decoded frame (so user gets feedback)
+        # Wait briefly for first decoded frame
         if not self.first_frame_evt.wait(timeout=5.0):
             print("[ERR] No decoded frames in 5s. Check camera encoding (H.265 recommended) or install codecs.")
 
-        # Main-thread preview / timing loop
+        # Main-thread preview / timing loop (with EARLY EXIT on detection)
         start = time.time()
         try:
             while time.time() - start < duration_s and not self.stop_event.is_set():
+                # ✅ EARLY EXIT: if any code was detected, stop right away
+                if self.detected:
+                    print("[QR] Early exit: QR code detected.")
+                    break
+
                 if show_window:
                     with self.last_lock:
                         frame = None if self.last_bgr is None else self.last_bgr.copy()
@@ -199,7 +232,6 @@ class OlympeQRScanner:
         finally:
             # Clean shutdown
             self.running = False
-            # Clear callbacks first (prevents late frames during teardown)
             try:
                 self.drone.streaming.set_callbacks(raw_cb=None, h264_cb=None, flush_raw_cb=None)
             except Exception:
@@ -209,14 +241,12 @@ class OlympeQRScanner:
             if self.worker and self.worker.is_alive():
                 self.worker.join(timeout=1.5)
 
-            # Drain any queued frames
             try:
                 while not self.frame_queue.empty():
                     self.frame_queue.get_nowait().unref()
             except Exception:
                 pass
 
-            # Stop streaming
             try:
                 self.drone.streaming.stop()
             except Exception:
@@ -229,6 +259,33 @@ class OlympeQRScanner:
                     pass
 
         return list(self.detected)
+
+
+    def record_360_scan(drone):
+        """Record a 360-degree scan video using OpenCV."""
+        log_message("Setting up 360 scan video recording")
+        scan_start_time = time.time()
+        video_filename = "360_scan.mp4"
+        cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
+
+        if not cap.isOpened():
+            log_message("Failed to open video stream for 360 scan", scan_start_time)
+            return None, None
+
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = 30
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        out = cv2.VideoWriter(video_filename, fourcc, fps, (width, height))
+        if not out.isOpened():
+            log_message("Failed to initialize video writer for 360 scan", scan_start_time)
+            cap.release()
+            return None, None
+
+        log_message(f"Recording started: {video_filename}")
+        return cap, out
+
 
 
 # ---------- Main mission ----------
@@ -268,7 +325,7 @@ def main():
     safe_move(drone, 1.4, 0, 0, 0)
     time.sleep(0.5)
 
-    # Step 5: Scan for QR (20s)
+    # Step 5: Scan for QR (up to 20s, early exit on detection)
     print("[MAIN] Scanning for QR code (1/3)...")
     scanner = OlympeQRScanner(drone, window_name="Drone QR Debug View 1")
     qr_found = scanner.scan(duration_s=20, show_window=True)
@@ -276,6 +333,7 @@ def main():
         print(f"[MAIN] QR code(s) detected: {qr_found}")
     else:
         print("[MAIN] No QR code found within time limit.")
+    log_qr_result("Scan 1/3", qr_found)
 
     # Step 6: Go back (rotate back and return)
     safe_move(drone, 0, 0, 0, -1.5708); time.sleep(0.5)
@@ -292,7 +350,7 @@ def main():
     # Step 9: turn right -> approach 2nd qr
     safe_move(drone, 0, 0, 0, 1.5708); time.sleep(0.5)
 
-    # Step 10: Scan for 2nd QR (20s)
+    # Step 10: Scan for 2nd QR (up to 20s, early exit on detection)
     print("[MAIN] Scanning for QR code (2/3)...")
     scanner2 = OlympeQRScanner(drone, window_name="Drone QR Debug View 2")
     qr_found = scanner2.scan(duration_s=20, show_window=True)
@@ -300,6 +358,7 @@ def main():
         print(f"[MAIN] QR code(s) detected: {qr_found}")
     else:
         print("[MAIN] No QR code found within time limit.")
+    log_qr_result("Scan 2/3", qr_found)
 
     # Step 11 turn left  -> approach 3rd qr
     safe_move(drone, 0, 0, 0, -1.5708); time.sleep(0.5)
@@ -313,7 +372,7 @@ def main():
     # Step 12: approach 3rd qr
     safe_move(drone, 1.5, 0, 0, 0); time.sleep(0.5)
 
-    # Step 13: Scan for 3rd QR (20s)
+    # Step 13: Scan for 3rd QR (up to 20s, early exit on detection)
     print("[MAIN] Scanning for QR code (3/3)...")
     scanner3 = OlympeQRScanner(drone, window_name="Drone QR Debug View 3")
     qr_found = scanner3.scan(duration_s=20, show_window=True)
@@ -321,6 +380,7 @@ def main():
         print(f"[MAIN] QR code(s) detected: {qr_found}")
     else:
         print("[MAIN] No QR code found within time limit.")
+    log_qr_result("Scan 3/3", qr_found)
 
     # Step 14 go back
     safe_move(drone, 0, 0, 0, -1.5708); time.sleep(0.5)
@@ -334,7 +394,6 @@ def main():
     safe_move(drone, 1.5, 0, 0, 0); time.sleep(1)
 
     # Start video recording via streaming pipeline
-    # (Start/stop the streaming around your spin; we keep QR callbacks separate from this block.)
     print("[VIDEO] Setting up 360 scan video recording...")
     video_filename = "360_scan.mp4"
     metadata_filename = "360_scan_metadata.json"
